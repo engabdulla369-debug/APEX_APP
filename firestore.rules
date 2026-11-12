@@ -1,0 +1,1083 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HELPERS ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email == 'engabdulla369@gmail.com' &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() ||
+        (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function hasUserProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApprovedMember() {
+      return isAdmin() || (hasUserProfile() && currentUserData().approvalStatus == 'approved');
+    }
+
+    function isDean() {
+      return isAdmin() || (isApprovedMember() && currentUserData().role == 'dean');
+    }
+
+    function isBatchRep() {
+      return isDean() || (isApprovedMember() && currentUserData().role == 'batch_rep');
+    }
+
+    function isTaForCourse(courseId) {
+      return isApprovedMember() &&
+        currentUserData().role == 'ta' &&
+        ('assignedCourseIds' in currentUserData()) &&
+        courseId in currentUserData().assignedCourseIds;
+    }
+
+    function canManageCourse(courseId) {
+      return isBatchRep() || isTaForCourse(courseId);
+    }
+
+    function isValidJoinCode(code) {
+      return code is string && code.size() >= 3 && code.size() <= 32 && (
+        (exists(/databases/$(database)/documents/batch_config/main) &&
+         code == get(/databases/$(database)/documents/batch_config/main).data.joinCode) ||
+        (!exists(/databases/$(database)/documents/batch_config/main) && code == 'ENG-2026')
+      );
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidAdminMarker(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.grantedBy is string && isValidId(data.grantedBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidBatchConfig(data) {
+      return data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.batchName is string && data.batchName.size() >= 2 && data.batchName.size() <= 120 &&
+        data.joinCode is string && data.joinCode.size() >= 3 && data.joinCode.size() <= 32 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.studentRecordNumber is string && data.studentRecordNumber.size() >= 2 && data.studentRecordNumber.size() <= 40 &&
+        data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+        data.academicYear is int && data.academicYear >= 1 && data.academicYear <= 5 &&
+        data.term is int && data.term >= 1 && data.term <= 2 &&
+        data.role in ['student', 'ta', 'batch_rep', 'dean'] &&
+        data.approvalStatus in ['pending', 'approved', 'rejected'] &&
+        data.batchId is string && data.batchId.size() <= 64 &&
+        data.darkMode is bool &&
+        data.notifyLectures is bool &&
+        data.notifyAssignments is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserProfileOptionalFields(data) {
+      return (!('joinCode' in data) || (data.joinCode is string && data.joinCode.size() <= 32)) &&
+        (!('assignedCourseIds' in data) || (data.assignedCourseIds is list && data.assignedCourseIds.size() <= 10)) &&
+        (!('enrolledCourseIds' in data) || (data.enrolledCourseIds is list && data.enrolledCourseIds.size() <= 20)) &&
+        (!('focusPoints' in data) || (data.focusPoints is int && data.focusPoints >= 0 && data.focusPoints <= 10000000)) &&
+        (!('totalStudySeconds' in data) || (data.totalStudySeconds is int && data.totalStudySeconds >= 0 && data.totalStudySeconds <= 100000000)) &&
+        (!('pomodoroSessionsCompleted' in data) || (data.pomodoroSessionsCompleted is int && data.pomodoroSessionsCompleted >= 0 && data.pomodoroSessionsCompleted <= 100000)) &&
+        (!('longestSessionSeconds' in data) || (data.longestSessionSeconds is int && data.longestSessionSeconds >= 0 && data.longestSessionSeconds <= 86400)) &&
+        (!('preferredLanguage' in data) || data.preferredLanguage in ['ar', 'en', 'fr', 'es']) &&
+        (!('currentStreakDays' in data) || (data.currentStreakDays is int && data.currentStreakDays >= 0 && data.currentStreakDays <= 3650)) &&
+        (!('longestStreakDays' in data) || (data.longestStreakDays is int && data.longestStreakDays >= 0 && data.longestStreakDays <= 3650)) &&
+        (!('lastStudyDayKey' in data) || (data.lastStudyDayKey is string && data.lastStudyDayKey.size() <= 20)) &&
+        (!('completedPersonalTasksCount' in data) || (data.completedPersonalTasksCount is int && data.completedPersonalTasksCount >= 0 && data.completedPersonalTasksCount <= 100000));
+    }
+
+    function isValidJoinRequest(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80 &&
+        data.studentRecordNumber is string && data.studentRecordNumber.size() >= 2 && data.studentRecordNumber.size() <= 40 &&
+        data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+        data.academicYear is int && data.academicYear >= 1 && data.academicYear <= 5 &&
+        data.role in ['student', 'ta', 'batch_rep', 'dean'] &&
+        data.approvalStatus in ['pending', 'approved', 'rejected'] &&
+        data.batchId is string && data.batchId.size() <= 64 &&
+        (!('assignedCourseIds' in data) || (data.assignedCourseIds is list && data.assignedCourseIds.size() <= 10 && (data.assignedCourseIds.size() == 0 || data.assignedCourseIds[0] is string))) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+        data.body is string && data.body.size() >= 2 && data.body.size() <= 1000 &&
+        data.priority in ['urgent', 'normal', 'circular'] &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.authorId is string && isValidId(data.authorId) &&
+        data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 80 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCourse(data) {
+      return data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+        data.code is string && data.code.size() >= 2 && data.code.size() <= 24 &&
+        data.academicYear is int && data.academicYear >= 1 && data.academicYear <= 5 &&
+        data.term is int && data.term >= 1 && data.term <= 2 &&
+        data.instructorName is string && data.instructorName.size() >= 2 && data.instructorName.size() <= 80 &&
+        data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+        data.accentHex is string && data.accentHex.size() >= 4 && data.accentHex.size() <= 16 &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidScheduleEntry(data) {
+      return data.courseId is string && isValidId(data.courseId) &&
+        data.courseTitle is string && data.courseTitle.size() >= 2 && data.courseTitle.size() <= 120 &&
+        data.dayOfWeek is int && data.dayOfWeek >= 1 && data.dayOfWeek <= 7 &&
+        data.startTime is string && data.startTime.size() >= 3 && data.startTime.size() <= 20 &&
+        data.endTime is string && data.endTime.size() >= 3 && data.endTime.size() <= 20 &&
+        data.location is string && data.location.size() >= 1 && data.location.size() <= 80 &&
+        data.instructorName is string && data.instructorName.size() >= 2 && data.instructorName.size() <= 80 &&
+        data.sessionType in ['lecture', 'section', 'lab'] &&
+        data.academicYear is int && data.academicYear >= 1 && data.academicYear <= 5 &&
+        data.term is int && data.term >= 1 && data.term <= 2 &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidMaterial(data) {
+      return data.courseId is string && isValidId(data.courseId) &&
+        data.courseTitle is string && data.courseTitle.size() >= 2 && data.courseTitle.size() <= 120 &&
+        data.category in ['lectures', 'summaries', 'references', 'links'] &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+        data.description is string && data.description.size() <= 600 &&
+        data.weekNumber is int && data.weekNumber >= 1 && data.weekNumber <= 30 &&
+        data.fileFormat is string && data.fileFormat.size() >= 1 && data.fileFormat.size() <= 20 &&
+        data.fileSize is string && data.fileSize.size() <= 40 &&
+        data.url is string && data.url.size() <= 800 &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.uploaderId is string && isValidId(data.uploaderId) &&
+        data.uploaderName is string && data.uploaderName.size() >= 2 && data.uploaderName.size() <= 80 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAssignment(data) {
+      return data.courseId is string && isValidId(data.courseId) &&
+        data.courseTitle is string && data.courseTitle.size() >= 2 && data.courseTitle.size() <= 120 &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+        data.description is string && data.description.size() <= 1000 &&
+        data.dueAtMillis is int && data.dueAtMillis > 0 &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAssignmentProgress(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.assignmentId is string && isValidId(data.assignmentId) &&
+        data.completed is bool &&
+        (!('submissionFileName' in data) || (data.submissionFileName is string && data.submissionFileName.size() <= 160)) &&
+        (!('submissionFileType' in data) || (data.submissionFileType is string && data.submissionFileType.size() <= 40)) &&
+        (!('submissionNote' in data) || (data.submissionNote is string && data.submissionNote.size() <= 500)) &&
+        (!('submissionUri' in data) || (data.submissionUri is string && data.submissionUri.size() <= 800)) &&
+        (!('submittedAtMillis' in data) || data.submittedAtMillis is int) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidQuiz(data) {
+      return data.courseId is string && isValidId(data.courseId) &&
+        data.courseTitle is string && data.courseTitle.size() >= 2 && data.courseTitle.size() <= 120 &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+        data.description is string && data.description.size() <= 600 &&
+        data.durationMinutes is int && data.durationMinutes >= 1 && data.durationMinutes <= 180 &&
+        data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 30 &&
+        data.questions[0] is map &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidQuizAttempt(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.quizId is string && isValidId(data.quizId) &&
+        data.quizTitle is string && data.quizTitle.size() >= 2 && data.quizTitle.size() <= 160 &&
+        data.courseTitle is string && data.courseTitle.size() >= 2 && data.courseTitle.size() <= 120 &&
+        data.score is int && data.score >= 0 && data.score <= 30 &&
+        data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 30 &&
+        data.durationSecondsUsed is int && data.durationSecondsUsed >= 0 && data.durationSecondsUsed <= 14400 &&
+        data.selectedAnswers is list && data.selectedAnswers.size() <= 30 &&
+        (data.selectedAnswers.size() == 0 || data.selectedAnswers[0] is int) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidChatChannel(data) {
+      return data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.type in ['general', 'course', 'team'] &&
+        (!('courseId' in data) || (data.courseId is string && data.courseId.size() <= 128)) &&
+        data.description is string && data.description.size() <= 300 &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.memberUids is list && data.memberUids.size() <= 25 &&
+        (data.memberUids.size() == 0 || data.memberUids[0] is string) &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdByName is string && data.createdByName.size() >= 2 && data.createdByName.size() <= 80 &&
+        (!('lastMessage' in data) || (data.lastMessage is string && data.lastMessage.size() <= 300)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidChatMessage(data) {
+      return data.channelId is string && isValidId(data.channelId) &&
+        data.batchId is string && data.batchId.size() >= 2 && data.batchId.size() <= 64 &&
+        data.senderId is string && isValidId(data.senderId) &&
+        data.senderName is string && data.senderName.size() >= 2 && data.senderName.size() <= 80 &&
+        data.senderRole in ['student', 'ta', 'batch_rep', 'dean'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 2000 &&
+        (!('attachmentName' in data) || (data.attachmentName is string && data.attachmentName.size() <= 160)) &&
+        (!('attachmentUrl' in data) || (data.attachmentUrl is string && data.attachmentUrl.size() <= 800)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidStudySession(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.mode in ['pomodoro', 'long_timer', 'focus_zone'] &&
+        (!('courseTitle' in data) || (data.courseTitle is string && data.courseTitle.size() <= 120)) &&
+        data.durationSeconds is int && data.durationSeconds >= 1 && data.durationSeconds <= 86400 &&
+        data.pointsEarned is int && data.pointsEarned >= 0 && data.pointsEarned <= 5000 &&
+        data.completedAtMillis is int && data.completedAtMillis > 0 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidLeaderboardEntry(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80 &&
+        data.department is string && data.department.size() >= 2 && data.department.size() <= 80 &&
+        data.academicYear is int && data.academicYear >= 1 && data.academicYear <= 5 &&
+        data.role in ['student', 'ta', 'batch_rep', 'dean'] &&
+        data.batchId == 'eng_2026' &&
+        data.focusPoints is int && data.focusPoints >= 0 && data.focusPoints <= 10000000 &&
+        data.totalStudySeconds is int && data.totalStudySeconds >= 0 && data.totalStudySeconds <= 100000000 &&
+        data.pomodoroSessionsCompleted is int && data.pomodoroSessionsCompleted >= 0 && data.pomodoroSessionsCompleted <= 100000 &&
+        data.longestSessionSeconds is int && data.longestSessionSeconds >= 0 && data.longestSessionSeconds <= 86400 &&
+        (!('currentStreakDays' in data) || (data.currentStreakDays is int && data.currentStreakDays >= 0 && data.currentStreakDays <= 3650)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidMeetingRoom(data) {
+      return data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+        data.topic is string && data.topic.size() <= 300 &&
+        (!('courseTitle' in data) || (data.courseTitle is string && data.courseTitle.size() <= 120)) &&
+        data.batchId == 'eng_2026' &&
+        data.hostId is string && isValidId(data.hostId) &&
+        data.hostName is string && data.hostName.size() >= 2 && data.hostName.size() <= 80 &&
+        data.status in ['active', 'ended'] &&
+        data.participantUids is list && data.participantUids.size() <= 50 &&
+        (data.participantUids.size() == 0 || data.participantUids[0] is string) &&
+        data.participantNames is list && data.participantNames.size() <= 50 &&
+        (data.participantNames.size() == 0 || data.participantNames[0] is string) &&
+        data.raisedHandUids is list && data.raisedHandUids.size() <= 50 &&
+        (data.raisedHandUids.size() == 0 || data.raisedHandUids[0] is string) &&
+        data.agendaNotes is string && data.agendaNotes.size() <= 3000 &&
+        (!('meetingUrl' in data) || (data.meetingUrl is string && data.meetingUrl.size() <= 500)) &&
+        data.startedAtMillis is int && data.startedAtMillis > 0 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidDynamicModule(data) {
+      return data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+        data.subtitle is string && data.subtitle.size() <= 300 &&
+        data.moduleType in ['home_card', 'quick_tool', 'official_banner'] &&
+        data.iconKey is string && data.iconKey.size() >= 1 && data.iconKey.size() <= 40 &&
+        data.accentHex is string && data.accentHex.size() >= 4 && data.accentHex.size() <= 16 &&
+        data.actionType in ['navigate_courses', 'navigate_study', 'navigate_tasks', 'navigate_chat', 'open_calculator', 'open_meetings', 'external_url'] &&
+        data.actionPayload is string && data.actionPayload.size() <= 500 &&
+        data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+        data.enabled is bool &&
+        data.batchId == 'eng_2026' &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdByName is string && data.createdByName.size() >= 2 && data.createdByName.size() <= 80 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFlashcard(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        (!('courseId' in data) || (data.courseId is string && data.courseId.size() <= 128)) &&
+        (!('courseTitle' in data) || (data.courseTitle is string && data.courseTitle.size() <= 120)) &&
+        data.deckName is string && data.deckName.size() >= 1 && data.deckName.size() <= 100 &&
+        data.frontText is string && data.frontText.size() >= 1 && data.frontText.size() <= 1500 &&
+        data.backText is string && data.backText.size() >= 1 && data.backText.size() <= 2000 &&
+        data.difficultyRating in ['new', 'easy', 'medium', 'hard'] &&
+        data.easeFactorPercent is int && data.easeFactorPercent >= 130 && data.easeFactorPercent <= 350 &&
+        data.intervalDays is int && data.intervalDays >= 0 && data.intervalDays <= 3650 &&
+        data.repetitions is int && data.repetitions >= 0 && data.repetitions <= 10000 &&
+        data.reviewCount is int && data.reviewCount >= 0 && data.reviewCount <= 100000 &&
+        data.nextReviewAtMillis is int && data.nextReviewAtMillis >= 0 &&
+        (!('lastReviewedAtMillis' in data) || (data.lastReviewedAtMillis is int && data.lastReviewedAtMillis >= 0)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPersonalTask(data) {
+      return data.userId is string && isValidId(data.userId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1500)) &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 60 &&
+        (!('courseTitle' in data) || (data.courseTitle is string && data.courseTitle.size() <= 120)) &&
+        data.priority in ['high', 'medium', 'low'] &&
+        data.dueAtMillis is int && data.dueAtMillis >= 0 &&
+        data.completed is bool &&
+        (!('completedAtMillis' in data) || (data.completedAtMillis is int && data.completedAtMillis >= 0)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGlobalReference(data) {
+      return data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+        data.provider is string && data.provider.size() >= 2 && data.provider.size() <= 80 &&
+        data.subject is string && data.subject.size() >= 2 && data.subject.size() <= 80 &&
+        data.description is string && data.description.size() <= 600 &&
+        data.url is string && data.url.size() >= 8 && data.url.size() <= 800 &&
+        data.languageCode is string && data.languageCode.size() >= 2 && data.languageCode.size() <= 16 &&
+        data.batchId == 'eng_2026' &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // --- COLLECTIONS ---
+
+    match /admins/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin() && isValidId(userId) &&
+        incoming().keys().hasAll(['userId', 'grantedBy', 'createdAt']) &&
+        incoming().keys().hasOnly(['userId', 'grantedBy', 'createdAt']) &&
+        incoming().userId == userId &&
+        isValidAdminMarker(incoming());
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /batch_config/{configId} {
+      allow get: if isSignedIn() && isValidId(configId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin() && isValidId(configId) &&
+        incoming().keys().hasAll(['batchId', 'batchName', 'joinCode', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['batchId', 'batchName', 'joinCode', 'createdAt', 'updatedAt']) &&
+        isValidBatchConfig(incoming());
+      allow update: if isAdmin() && isValidId(configId) &&
+        isValidBatchConfig(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['batchName', 'joinCode', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin() || isBatchRep());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn() && isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        isValidUserProfileOptionalFields(incoming()) &&
+        incoming().userId == userId &&
+        incoming().createdAt <= request.time &&
+        incoming().keys().hasAll([
+          'userId', 'displayName', 'email', 'studentRecordNumber', 'department',
+          'academicYear', 'term', 'role', 'approvalStatus', 'batchId',
+          'darkMode', 'notifyLectures', 'notifyAssignments', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'displayName', 'email', 'studentRecordNumber', 'department',
+          'academicYear', 'term', 'role', 'approvalStatus', 'batchId', 'joinCode',
+          'assignedCourseIds', 'enrolledCourseIds', 'darkMode', 'notifyLectures',
+          'notifyAssignments', 'focusPoints', 'totalStudySeconds',
+          'pomodoroSessionsCompleted', 'longestSessionSeconds', 'preferredLanguage',
+          'currentStreakDays', 'longestStreakDays', 'lastStudyDayKey',
+          'completedPersonalTasksCount', 'createdAt', 'updatedAt'
+        ]) && (
+          (
+            request.auth.uid == userId &&
+            incoming().role == 'student' &&
+            (!('assignedCourseIds' in incoming()) || incoming().assignedCourseIds.size() == 0) &&
+            (!('focusPoints' in incoming()) || incoming().focusPoints == 0) &&
+            (!('totalStudySeconds' in incoming()) || incoming().totalStudySeconds == 0) &&
+            (
+              (incoming().approvalStatus == 'pending' && incoming().batchId == '') ||
+              (incoming().approvalStatus == 'approved' && incoming().batchId == 'eng_2026' && ('joinCode' in incoming()) && isValidJoinCode(incoming().joinCode))
+            )
+          ) ||
+          isAdmin()
+        );
+
+      // Owner preferences, study stats, streaks, language & personal task count update
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().role == existing().role &&
+        incoming().approvalStatus == existing().approvalStatus &&
+        incoming().batchId == existing().batchId &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'studentRecordNumber', 'department', 'academicYear',
+          'term', 'enrolledCourseIds', 'darkMode', 'notifyLectures',
+          'notifyAssignments', 'focusPoints', 'totalStudySeconds',
+          'pomodoroSessionsCompleted', 'longestSessionSeconds',
+          'preferredLanguage', 'currentStreakDays', 'longestStreakDays',
+          'lastStudyDayKey', 'completedPersonalTasksCount', 'updatedAt'
+        ]) &&
+        incoming().displayName is string && incoming().displayName.size() >= 2 && incoming().displayName.size() <= 80 &&
+        incoming().academicYear is int && incoming().academicYear >= 1 && incoming().academicYear <= 5 &&
+        incoming().term is int && incoming().term >= 1 && incoming().term <= 2 &&
+        incoming().darkMode is bool &&
+        incoming().notifyLectures is bool &&
+        incoming().notifyAssignments is bool &&
+        incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+        isValidUserProfileOptionalFields(incoming());
+
+      // Pending student self-activation via valid join code
+      allow update: if isSignedIn() &&
+        request.auth.uid == userId &&
+        existing().approvalStatus == 'pending' &&
+        incoming().approvalStatus == 'approved' &&
+        incoming().batchId == 'eng_2026' &&
+        ('joinCode' in incoming()) && isValidJoinCode(incoming().joinCode) &&
+        incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'approvalStatus', 'batchId', 'joinCode', 'updatedAt'
+        ]);
+
+      // Dean / Batch Rep approving or updating member role & assigned courses
+      allow update: if isSignedIn() && isValidId(userId) &&
+        incoming().role in ['student', 'ta', 'batch_rep', 'dean'] &&
+        incoming().approvalStatus in ['pending', 'approved', 'rejected'] &&
+        incoming().batchId is string && incoming().batchId.size() <= 64 &&
+        (!('assignedCourseIds' in incoming()) || (incoming().assignedCourseIds is list && incoming().assignedCourseIds.size() <= 10)) &&
+        incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'role', 'approvalStatus', 'batchId', 'assignedCourseIds', 'updatedAt'
+        ]) &&
+        (isAdmin() || (
+          isApprovedMember() && (
+            currentUserData().role == 'dean' ||
+            (currentUserData().role == 'batch_rep' && existing().role != 'dean' && incoming().role != 'dean')
+          )
+        ));
+
+      allow delete: if isAdmin() && isValidId(userId);
+
+      // User-scoped assignment progress & submission metadata
+      match /assignment_progress/{assignmentId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(assignmentId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(userId) && isValidId(assignmentId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidAssignmentProgress(incoming()) &&
+          incoming().userId == userId &&
+          incoming().assignmentId == assignmentId &&
+          incoming().keys().hasAll(['userId', 'assignmentId', 'completed', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly([
+            'userId', 'assignmentId', 'completed', 'submissionFileName',
+            'submissionFileType', 'submissionNote', 'submissionUri', 'submittedAtMillis',
+            'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() && isValidId(userId) && isValidId(assignmentId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidAssignmentProgress(incoming()) &&
+          incoming().userId == existing().userId &&
+          incoming().assignmentId == existing().assignmentId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'completed', 'submissionFileName', 'submissionFileType',
+            'submissionNote', 'submissionUri', 'submittedAtMillis', 'updatedAt'
+          ]);
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(assignmentId) && request.auth.uid == userId;
+      }
+
+      // User-scoped quiz attempts
+      match /quiz_attempts/{attemptId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(attemptId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(userId) && isValidId(attemptId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidQuizAttempt(incoming()) &&
+          incoming().userId == userId &&
+          incoming().keys().hasAll([
+            'userId', 'quizId', 'quizTitle', 'courseTitle', 'score',
+            'totalQuestions', 'durationSecondsUsed', 'selectedAnswers', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'quizId', 'quizTitle', 'courseTitle', 'score',
+            'totalQuestions', 'durationSecondsUsed', 'selectedAnswers', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(attemptId) && request.auth.uid == userId;
+      }
+
+      // User-scoped study timer / Pomodoro / Focus Zone sessions
+      match /study_sessions/{sessionId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(sessionId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(userId) && isValidId(sessionId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidStudySession(incoming()) &&
+          incoming().userId == userId &&
+          incoming().keys().hasAll([
+            'userId', 'mode', 'durationSeconds', 'pointsEarned', 'completedAtMillis', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'mode', 'courseTitle', 'durationSeconds', 'pointsEarned', 'completedAtMillis', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(sessionId) && request.auth.uid == userId;
+      }
+
+      // User-scoped spaced-repetition flashcards
+      match /flashcards/{cardId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(cardId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(userId) && isValidId(cardId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidFlashcard(incoming()) &&
+          incoming().userId == userId &&
+          incoming().keys().hasAll([
+            'userId', 'deckName', 'frontText', 'backText', 'difficultyRating',
+            'easeFactorPercent', 'intervalDays', 'repetitions', 'reviewCount',
+            'nextReviewAtMillis', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'courseId', 'courseTitle', 'deckName', 'frontText', 'backText',
+            'difficultyRating', 'easeFactorPercent', 'intervalDays', 'repetitions',
+            'reviewCount', 'nextReviewAtMillis', 'lastReviewedAtMillis', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() && isValidId(userId) && isValidId(cardId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidFlashcard(incoming()) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'courseId', 'courseTitle', 'deckName', 'frontText', 'backText',
+            'difficultyRating', 'easeFactorPercent', 'intervalDays', 'repetitions',
+            'reviewCount', 'nextReviewAtMillis', 'lastReviewedAtMillis', 'updatedAt'
+          ]);
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(cardId) && request.auth.uid == userId;
+      }
+
+      // User-scoped daily To-Do tasks
+      match /personal_tasks/{taskId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(taskId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(userId) && isValidId(taskId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidPersonalTask(incoming()) &&
+          incoming().userId == userId &&
+          incoming().keys().hasAll([
+            'userId', 'title', 'category', 'priority', 'dueAtMillis',
+            'completed', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'title', 'notes', 'category', 'courseTitle', 'priority',
+            'dueAtMillis', 'completed', 'completedAtMillis', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() && isValidId(userId) && isValidId(taskId) &&
+          request.auth.uid == userId &&
+          isApprovedMember() &&
+          isValidPersonalTask(incoming()) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'notes', 'category', 'courseTitle', 'priority',
+            'dueAtMillis', 'completed', 'completedAtMillis', 'updatedAt'
+          ]);
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(taskId) && request.auth.uid == userId;
+      }
+    }
+
+    match /study_leaderboard/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(userId) &&
+        request.auth.uid == userId &&
+        isApprovedMember() &&
+        isValidLeaderboardEntry(incoming()) &&
+        incoming().userId == userId &&
+        incoming().keys().hasAll([
+          'userId', 'displayName', 'department', 'academicYear', 'role', 'batchId',
+          'focusPoints', 'totalStudySeconds', 'pomodoroSessionsCompleted', 'longestSessionSeconds',
+          'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'displayName', 'department', 'academicYear', 'role', 'batchId',
+          'focusPoints', 'totalStudySeconds', 'pomodoroSessionsCompleted', 'longestSessionSeconds',
+          'currentStreakDays', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(userId) &&
+        request.auth.uid == userId &&
+        isApprovedMember() &&
+        isValidLeaderboardEntry(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'department', 'academicYear', 'role',
+          'focusPoints', 'totalStudySeconds', 'pomodoroSessionsCompleted',
+          'longestSessionSeconds', 'currentStreakDays', 'updatedAt'
+        ]);
+      allow delete: if isDean() && isValidId(userId);
+    }
+
+    match /join_requests/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isBatchRep());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.batchId == 'eng_2026' || resource.data.batchId == 'pending_queue');
+      allow create: if isSignedIn() && isValidId(userId) &&
+        isValidJoinRequest(incoming()) &&
+        incoming().userId == userId &&
+        incoming().keys().hasAll([
+          'userId', 'displayName', 'studentRecordNumber', 'department',
+          'academicYear', 'role', 'approvalStatus', 'batchId', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'displayName', 'studentRecordNumber', 'department',
+          'academicYear', 'role', 'approvalStatus', 'batchId', 'assignedCourseIds',
+          'createdAt', 'updatedAt'
+        ]) && (
+          isAdmin() ||
+          (
+            request.auth.uid == userId &&
+            incoming().role == 'student' &&
+            incoming().approvalStatus in ['pending', 'approved'] &&
+            incoming().batchId in ['eng_2026', 'pending_queue']
+          )
+        );
+      allow update: if isSignedIn() && isValidId(userId) &&
+        isValidJoinRequest(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          (
+            (isDean() || (isBatchRep() && existing().role != 'dean' && incoming().role != 'dean')) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'role', 'approvalStatus', 'batchId', 'assignedCourseIds', 'updatedAt'
+            ])
+          ) ||
+          (
+            request.auth.uid == userId &&
+            incoming().role == existing().role &&
+            incoming().approvalStatus == existing().approvalStatus &&
+            incoming().batchId == existing().batchId &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'studentRecordNumber', 'department', 'academicYear', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /announcements/{announcementId} {
+      allow get: if isSignedIn() && isValidId(announcementId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(announcementId) &&
+        isBatchRep() &&
+        (incoming().priority != 'circular' || isDean()) &&
+        isValidAnnouncement(incoming()) &&
+        incoming().authorId == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll(['title', 'body', 'priority', 'batchId', 'authorId', 'authorName', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['title', 'body', 'priority', 'batchId', 'authorId', 'authorName', 'createdAt', 'updatedAt']);
+      allow update: if isSignedIn() && isValidId(announcementId) &&
+        isBatchRep() &&
+        (incoming().priority != 'circular' || isDean()) &&
+        isValidAnnouncement(incoming()) &&
+        incoming().authorId == existing().authorId &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'priority', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(announcementId) && isBatchRep();
+    }
+
+    match /courses/{courseId} {
+      allow get: if isSignedIn() && isValidId(courseId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(courseId) &&
+        isBatchRep() &&
+        isValidCourse(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'title', 'code', 'academicYear', 'term', 'instructorName',
+          'department', 'accentHex', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'title', 'code', 'academicYear', 'term', 'instructorName',
+          'department', 'accentHex', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(courseId) &&
+        isBatchRep() &&
+        isValidCourse(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'code', 'academicYear', 'term', 'instructorName', 'department', 'accentHex', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(courseId) && isBatchRep();
+    }
+
+    match /schedule_entries/{entryId} {
+      allow get: if isSignedIn() && isValidId(entryId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(entryId) &&
+        isBatchRep() &&
+        isValidScheduleEntry(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'courseId', 'courseTitle', 'dayOfWeek', 'startTime', 'endTime', 'location',
+          'instructorName', 'sessionType', 'academicYear', 'term', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'courseId', 'courseTitle', 'dayOfWeek', 'startTime', 'endTime', 'location',
+          'instructorName', 'sessionType', 'academicYear', 'term', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(entryId) &&
+        isBatchRep() &&
+        isValidScheduleEntry(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'courseId', 'courseTitle', 'dayOfWeek', 'startTime', 'endTime', 'location',
+          'instructorName', 'sessionType', 'academicYear', 'term', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(entryId) && isBatchRep();
+    }
+
+    match /materials/{materialId} {
+      allow get: if isSignedIn() && isValidId(materialId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(materialId) &&
+        isValidMaterial(incoming()) &&
+        canManageCourse(incoming().courseId) &&
+        incoming().uploaderId == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        exists(/databases/$(database)/documents/courses/$(incoming().courseId)) &&
+        incoming().keys().hasAll([
+          'courseId', 'courseTitle', 'category', 'title', 'description', 'weekNumber',
+          'fileFormat', 'fileSize', 'url', 'batchId', 'uploaderId', 'uploaderName', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'courseId', 'courseTitle', 'category', 'title', 'description', 'weekNumber',
+          'fileFormat', 'fileSize', 'url', 'batchId', 'uploaderId', 'uploaderName', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(materialId) &&
+        isValidMaterial(incoming()) &&
+        canManageCourse(existing().courseId) &&
+        incoming().courseId == existing().courseId &&
+        incoming().uploaderId == existing().uploaderId &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'category', 'title', 'description', 'weekNumber', 'fileFormat', 'fileSize', 'url', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(materialId) && canManageCourse(existing().courseId);
+    }
+
+    match /assignments/{assignmentId} {
+      allow get: if isSignedIn() && isValidId(assignmentId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(assignmentId) &&
+        isValidAssignment(incoming()) &&
+        canManageCourse(incoming().courseId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        exists(/databases/$(database)/documents/courses/$(incoming().courseId)) &&
+        incoming().keys().hasAll([
+          'courseId', 'courseTitle', 'title', 'description', 'dueAtMillis',
+          'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'courseId', 'courseTitle', 'title', 'description', 'dueAtMillis',
+          'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(assignmentId) &&
+        isValidAssignment(incoming()) &&
+        canManageCourse(existing().courseId) &&
+        incoming().courseId == existing().courseId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'dueAtMillis', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(assignmentId) && canManageCourse(existing().courseId);
+    }
+
+    match /quizzes/{quizId} {
+      allow get: if isSignedIn() && isValidId(quizId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(quizId) &&
+        isValidQuiz(incoming()) &&
+        canManageCourse(incoming().courseId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        exists(/databases/$(database)/documents/courses/$(incoming().courseId)) &&
+        incoming().keys().hasAll([
+          'courseId', 'courseTitle', 'title', 'description', 'durationMinutes',
+          'questions', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'courseId', 'courseTitle', 'title', 'description', 'durationMinutes',
+          'questions', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(quizId) &&
+        isValidQuiz(incoming()) &&
+        canManageCourse(existing().courseId) &&
+        incoming().courseId == existing().courseId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'durationMinutes', 'questions', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(quizId) && canManageCourse(existing().courseId);
+    }
+
+    match /chat_channels/{channelId} {
+      allow get: if isSignedIn() && isValidId(channelId) && isApprovedMember() &&
+        (existing().type != 'team' || request.auth.uid in existing().memberUids || isBatchRep());
+      allow list: if isSignedIn() && (
+        (resource.data.batchId == 'eng_2026' && resource.data.type in ['general', 'course']) ||
+        (resource.data.type == 'team' && request.auth.uid in resource.data.memberUids)
+      );
+      allow create: if isSignedIn() && isValidId(channelId) &&
+        isApprovedMember() &&
+        isValidChatChannel(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'name', 'type', 'description', 'batchId', 'memberUids',
+          'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'name', 'type', 'courseId', 'description', 'batchId', 'memberUids',
+          'createdBy', 'createdByName', 'lastMessage', 'createdAt', 'updatedAt'
+        ]) && (
+          (incoming().type in ['general', 'course'] && isBatchRep()) ||
+          (incoming().type == 'team' && request.auth.uid in incoming().memberUids)
+        );
+      allow update: if isSignedIn() && isValidId(channelId) &&
+        isApprovedMember() &&
+        isValidChatChannel(incoming()) &&
+        incoming().type == existing().type &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt && (
+          (
+            (existing().type != 'team' || request.auth.uid in existing().memberUids) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage', 'updatedAt'])
+          ) ||
+          (
+            existing().type == 'team' &&
+            (existing().createdBy == request.auth.uid || isBatchRep()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'memberUids', 'lastMessage', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(channelId) &&
+        (isBatchRep() || (existing().type == 'team' && existing().createdBy == request.auth.uid));
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(channelId) && isValidId(messageId) && isApprovedMember();
+        allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+        allow create: if isSignedIn() && isValidId(channelId) && isValidId(messageId) &&
+          isApprovedMember() &&
+          isValidChatMessage(incoming()) &&
+          incoming().channelId == channelId &&
+          incoming().senderId == request.auth.uid &&
+          incoming().batchId == 'eng_2026' &&
+          exists(/databases/$(database)/documents/chat_channels/$(channelId)) &&
+          incoming().keys().hasAll([
+            'channelId', 'batchId', 'senderId', 'senderName', 'senderRole', 'text', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'channelId', 'batchId', 'senderId', 'senderName', 'senderRole', 'text',
+            'attachmentName', 'attachmentUrl', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(channelId) && isValidId(messageId) &&
+          (existing().senderId == request.auth.uid || isBatchRep());
+      }
+    }
+
+    match /meeting_rooms/{roomId} {
+      allow get: if isSignedIn() && isValidId(roomId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(roomId) &&
+        isApprovedMember() &&
+        isValidMeetingRoom(incoming()) &&
+        incoming().hostId == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'title', 'topic', 'batchId', 'hostId', 'hostName', 'status',
+          'participantUids', 'participantNames', 'raisedHandUids', 'agendaNotes',
+          'startedAtMillis', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'title', 'topic', 'courseTitle', 'batchId', 'hostId', 'hostName', 'status',
+          'participantUids', 'participantNames', 'raisedHandUids', 'agendaNotes',
+          'meetingUrl', 'startedAtMillis', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(roomId) &&
+        isApprovedMember() &&
+        isValidMeetingRoom(incoming()) &&
+        incoming().hostId == existing().hostId &&
+        incoming().batchId == existing().batchId &&
+        incoming().startedAtMillis == existing().startedAtMillis &&
+        incoming().createdAt == existing().createdAt && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'participantUids', 'participantNames', 'raisedHandUids', 'agendaNotes', 'updatedAt'
+          ]) ||
+          (
+            (existing().hostId == request.auth.uid || isBatchRep()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'topic', 'courseTitle', 'status', 'meetingUrl',
+              'participantUids', 'participantNames', 'raisedHandUids', 'agendaNotes', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(roomId) && (existing().hostId == request.auth.uid || isBatchRep());
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(messageId) && isApprovedMember();
+        allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(messageId) &&
+          isApprovedMember() &&
+          isValidChatMessage(incoming()) &&
+          incoming().channelId == roomId &&
+          incoming().senderId == request.auth.uid &&
+          incoming().batchId == 'eng_2026' &&
+          exists(/databases/$(database)/documents/meeting_rooms/$(roomId)) &&
+          incoming().keys().hasAll([
+            'channelId', 'batchId', 'senderId', 'senderName', 'senderRole', 'text', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'channelId', 'batchId', 'senderId', 'senderName', 'senderRole', 'text',
+            'attachmentName', 'attachmentUrl', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(messageId) &&
+          (existing().senderId == request.auth.uid || isBatchRep());
+      }
+    }
+
+    match /dynamic_modules/{moduleId} {
+      allow get: if isSignedIn() && isValidId(moduleId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(moduleId) &&
+        isBatchRep() &&
+        isValidDynamicModule(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'title', 'subtitle', 'moduleType', 'iconKey', 'accentHex',
+          'actionType', 'actionPayload', 'sortOrder', 'enabled', 'batchId',
+          'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'title', 'subtitle', 'moduleType', 'iconKey', 'accentHex',
+          'actionType', 'actionPayload', 'sortOrder', 'enabled', 'batchId',
+          'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(moduleId) &&
+        isBatchRep() &&
+        isValidDynamicModule(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'subtitle', 'moduleType', 'iconKey', 'accentHex',
+          'actionType', 'actionPayload', 'sortOrder', 'enabled', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(moduleId) && isBatchRep();
+    }
+
+    match /global_references/{refId} {
+      allow get: if isSignedIn() && isValidId(refId) && isApprovedMember();
+      allow list: if isSignedIn() && resource.data.batchId == 'eng_2026';
+      allow create: if isSignedIn() && isValidId(refId) &&
+        isApprovedMember() &&
+        isValidGlobalReference(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().batchId == 'eng_2026' &&
+        incoming().keys().hasAll([
+          'title', 'provider', 'subject', 'description', 'url',
+          'languageCode', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'title', 'provider', 'subject', 'description', 'url',
+          'languageCode', 'batchId', 'createdBy', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() && isValidId(refId) &&
+        isApprovedMember() &&
+        (existing().createdBy == request.auth.uid || isBatchRep()) &&
+        isValidGlobalReference(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'provider', 'subject', 'description', 'url', 'languageCode', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(refId) &&
+        (existing().createdBy == request.auth.uid || isBatchRep());
+    }
+  }
+}

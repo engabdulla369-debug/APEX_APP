@@ -1,0 +1,612 @@
+{
+  "entities": {
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Explicitly grants administrator privileges to a user UID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Admin user UID" },
+        "grantedBy": { "type": "string", "description": "UID of admin who granted access" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "grantedBy", "createdAt"]
+    },
+    "BatchConfig": {
+      "title": "BatchConfig",
+      "description": "Batch metadata and verification join code managed by admins.",
+      "type": "object",
+      "properties": {
+        "batchId": { "type": "string" },
+        "batchName": { "type": "string" },
+        "joinCode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["batchId", "batchName", "joinCode", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private authenticated student/TA/rep profile with role, approval status, and preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "studentRecordNumber": { "type": "string" },
+        "department": { "type": "string" },
+        "academicYear": { "type": "integer" },
+        "term": { "type": "integer" },
+        "role": { "type": "string", "enum": ["student", "ta", "batch_rep", "dean"] },
+        "approvalStatus": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "batchId": { "type": "string" },
+        "joinCode": { "type": "string" },
+        "assignedCourseIds": { "type": "array" },
+        "enrolledCourseIds": { "type": "array" },
+        "darkMode": { "type": "boolean" },
+        "notifyLectures": { "type": "boolean" },
+        "notifyAssignments": { "type": "boolean" },
+        "focusPoints": { "type": "integer" },
+        "totalStudySeconds": { "type": "integer" },
+        "pomodoroSessionsCompleted": { "type": "integer" },
+        "longestSessionSeconds": { "type": "integer" },
+        "preferredLanguage": { "type": "string", "enum": ["ar", "en", "fr", "es"] },
+        "currentStreakDays": { "type": "integer" },
+        "longestStreakDays": { "type": "integer" },
+        "lastStudyDayKey": { "type": "string" },
+        "completedPersonalTasksCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "email",
+        "studentRecordNumber",
+        "department",
+        "academicYear",
+        "term",
+        "role",
+        "approvalStatus",
+        "batchId",
+        "darkMode",
+        "notifyLectures",
+        "notifyAssignments",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "JoinRequest": {
+      "title": "JoinRequest",
+      "description": "Non-PII directory entry for batch membership approval and role assignment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "studentRecordNumber": { "type": "string" },
+        "department": { "type": "string" },
+        "academicYear": { "type": "integer" },
+        "role": { "type": "string", "enum": ["student", "ta", "batch_rep", "dean"] },
+        "approvalStatus": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "batchId": { "type": "string" },
+        "assignedCourseIds": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "studentRecordNumber",
+        "department",
+        "academicYear",
+        "role",
+        "approvalStatus",
+        "batchId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Urgent batch news and official university circulars.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "priority": { "type": "string", "enum": ["urgent", "normal", "circular"] },
+        "batchId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "body", "priority", "batchId", "authorId", "authorName", "createdAt", "updatedAt"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Academic course organized by year and semester.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "code": { "type": "string" },
+        "academicYear": { "type": "integer" },
+        "term": { "type": "integer" },
+        "instructorName": { "type": "string" },
+        "department": { "type": "string" },
+        "accentHex": { "type": "string" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "title",
+        "code",
+        "academicYear",
+        "term",
+        "instructorName",
+        "department",
+        "accentHex",
+        "batchId",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ScheduleEntry": {
+      "title": "ScheduleEntry",
+      "description": "Daily lecture, section, or lab session entry.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "dayOfWeek": { "type": "integer" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "location": { "type": "string" },
+        "instructorName": { "type": "string" },
+        "sessionType": { "type": "string", "enum": ["lecture", "section", "lab"] },
+        "academicYear": { "type": "integer" },
+        "term": { "type": "integer" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "courseId",
+        "courseTitle",
+        "dayOfWeek",
+        "startTime",
+        "endTime",
+        "location",
+        "instructorName",
+        "sessionType",
+        "academicYear",
+        "term",
+        "batchId",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CourseMaterial": {
+      "title": "CourseMaterial",
+      "description": "Study material item under lectures, summaries, references, or links.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "category": { "type": "string", "enum": ["lectures", "summaries", "references", "links"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "weekNumber": { "type": "integer" },
+        "fileFormat": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "url": { "type": "string" },
+        "batchId": { "type": "string" },
+        "uploaderId": { "type": "string" },
+        "uploaderName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "courseId",
+        "courseTitle",
+        "category",
+        "title",
+        "description",
+        "weekNumber",
+        "fileFormat",
+        "fileSize",
+        "url",
+        "batchId",
+        "uploaderId",
+        "uploaderName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Academic assignment with countdown deadline.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "dueAtMillis": { "type": "integer" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "courseId",
+        "courseTitle",
+        "title",
+        "description",
+        "dueAtMillis",
+        "batchId",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AssignmentProgress": {
+      "title": "AssignmentProgress",
+      "description": "Per-student assignment completion and uploaded solution metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "submissionFileName": { "type": "string" },
+        "submissionFileType": { "type": "string" },
+        "submissionNote": { "type": "string" },
+        "submissionUri": { "type": "string" },
+        "submittedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "assignmentId", "completed", "createdAt", "updatedAt"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Practice quiz with MCQ / True-False questions and timer.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "durationMinutes": { "type": "integer" },
+        "questions": { "type": "array" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "courseId",
+        "courseTitle",
+        "title",
+        "description",
+        "durationMinutes",
+        "questions",
+        "batchId",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "QuizAttempt": {
+      "title": "QuizAttempt",
+      "description": "Student quiz score and answer breakdown.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "quizId": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "score": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "durationSecondsUsed": { "type": "integer" },
+        "selectedAnswers": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "quizId",
+        "quizTitle",
+        "courseTitle",
+        "score",
+        "totalQuestions",
+        "durationSecondsUsed",
+        "selectedAnswers",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatChannel": {
+      "title": "ChatChannel",
+      "description": "General batch chat, course channel, or student project team room.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["general", "course", "team"] },
+        "courseId": { "type": "string" },
+        "description": { "type": "string" },
+        "batchId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "createdBy": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name",
+        "type",
+        "description",
+        "batchId",
+        "memberUids",
+        "createdBy",
+        "createdByName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Message inside a chat channel or project team room.",
+      "type": "object",
+      "properties": {
+        "channelId": { "type": "string" },
+        "batchId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "text": { "type": "string" },
+        "attachmentName": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["channelId", "batchId", "senderId", "senderName", "senderRole", "text", "createdAt", "updatedAt"]
+    },
+    "StudySession": {
+      "title": "StudySession",
+      "description": "Recorded Pomodoro, Long Study Timer, or Focus Zone session for a student.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "mode": { "type": "string", "enum": ["pomodoro", "long_timer", "focus_zone"] },
+        "courseTitle": { "type": "string" },
+        "durationSeconds": { "type": "integer" },
+        "pointsEarned": { "type": "integer" },
+        "completedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "mode", "durationSeconds", "pointsEarned", "completedAtMillis", "createdAt", "updatedAt"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Non-PII public study points and focus hours entry for batch leaderboard.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "department": { "type": "string" },
+        "academicYear": { "type": "integer" },
+        "role": { "type": "string", "enum": ["student", "ta", "batch_rep", "dean"] },
+        "batchId": { "type": "string" },
+        "focusPoints": { "type": "integer" },
+        "totalStudySeconds": { "type": "integer" },
+        "pomodoroSessionsCompleted": { "type": "integer" },
+        "longestSessionSeconds": { "type": "integer" },
+        "currentStreakDays": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "department", "academicYear", "role", "batchId", "focusPoints", "totalStudySeconds", "pomodoroSessionsCompleted", "longestSessionSeconds", "createdAt", "updatedAt"]
+    },
+    "MeetingRoom": {
+      "title": "MeetingRoom",
+      "description": "Mini student project/study meeting room with participants, agenda notes, and hand raising.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "topic": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "batchId": { "type": "string" },
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "ended"] },
+        "participantUids": { "type": "array" },
+        "participantNames": { "type": "array" },
+        "raisedHandUids": { "type": "array" },
+        "agendaNotes": { "type": "string" },
+        "meetingUrl": { "type": "string" },
+        "startedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "topic", "batchId", "hostId", "hostName", "status", "participantUids", "participantNames", "raisedHandUids", "agendaNotes", "startedAtMillis", "createdAt", "updatedAt"]
+    },
+    "DynamicModule": {
+      "title": "DynamicModule",
+      "description": "In-app dynamically built UI section, quick tool, or official banner configured by Dean or Batch Rep.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "moduleType": { "type": "string", "enum": ["home_card", "quick_tool", "official_banner"] },
+        "iconKey": { "type": "string" },
+        "accentHex": { "type": "string" },
+        "actionType": { "type": "string" },
+        "actionPayload": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "enabled": { "type": "boolean" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "subtitle", "moduleType", "iconKey", "accentHex", "actionType", "actionPayload", "sortOrder", "enabled", "batchId", "createdBy", "createdByName", "createdAt", "updatedAt"]
+    },
+    "Flashcard": {
+      "title": "Flashcard",
+      "description": "Per-student interactive flashcard with spaced repetition scheduling metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "deckName": { "type": "string" },
+        "frontText": { "type": "string" },
+        "backText": { "type": "string" },
+        "difficultyRating": { "type": "string", "enum": ["new", "easy", "medium", "hard"] },
+        "easeFactorPercent": { "type": "integer" },
+        "intervalDays": { "type": "integer" },
+        "repetitions": { "type": "integer" },
+        "reviewCount": { "type": "integer" },
+        "nextReviewAtMillis": { "type": "integer" },
+        "lastReviewedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "deckName", "frontText", "backText", "difficultyRating", "easeFactorPercent", "intervalDays", "repetitions", "reviewCount", "nextReviewAtMillis", "createdAt", "updatedAt"]
+    },
+    "PersonalTask": {
+      "title": "PersonalTask",
+      "description": "Per-student Notion-style daily To-Do task with priority and deadline.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "notes": { "type": "string" },
+        "category": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "dueAtMillis": { "type": "integer" },
+        "completed": { "type": "boolean" },
+        "completedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "category", "priority", "dueAtMillis", "completed", "createdAt", "updatedAt"]
+    },
+    "GlobalReference": {
+      "title": "GlobalReference",
+      "description": "Curated global academic reference link (MIT OCW, Khan Academy, IEEE, etc.).",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "provider": { "type": "string" },
+        "subject": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "languageCode": { "type": "string" },
+        "batchId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "provider", "subject", "description", "url", "languageCode", "batchId", "createdBy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Admin role marker documents"
+    },
+    "/batch_config/{configId}": {
+      "schema": { "$ref": "#/entities/BatchConfig" },
+      "description": "Batch verification settings"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles containing PII and settings"
+    },
+    "/join_requests/{userId}": {
+      "schema": { "$ref": "#/entities/JoinRequest" },
+      "description": "Batch membership directory and pending approvals"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Urgent batch ticker announcements and official circulars"
+    },
+    "/courses/{courseId}": {
+      "schema": { "$ref": "#/entities/Course" },
+      "description": "Academic courses by year and term"
+    },
+    "/schedule_entries/{entryId}": {
+      "schema": { "$ref": "#/entities/ScheduleEntry" },
+      "description": "Daily lectures and sections schedule"
+    },
+    "/materials/{materialId}": {
+      "schema": { "$ref": "#/entities/CourseMaterial" },
+      "description": "Course files, summaries, references, videos, and external links"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/Assignment" },
+      "description": "Batch assignments and deadlines"
+    },
+    "/users/{userId}/assignment_progress/{assignmentId}": {
+      "schema": { "$ref": "#/entities/AssignmentProgress" },
+      "description": "Per-user assignment checklist and solution upload metadata"
+    },
+    "/quizzes/{quizId}": {
+      "schema": { "$ref": "#/entities/Quiz" },
+      "description": "Practice quizzes with MCQ and True/False questions"
+    },
+    "/users/{userId}/quiz_attempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/QuizAttempt" },
+      "description": "Per-user quiz attempt results"
+    },
+    "/users/{userId}/study_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/StudySession" },
+      "description": "Per-user study timer and Pomodoro sessions"
+    },
+    "/study_leaderboard/{userId}": {
+      "schema": { "$ref": "#/entities/LeaderboardEntry" },
+      "description": "Non-PII public study leaderboard"
+    },
+    "/chat_channels/{channelId}": {
+      "schema": { "$ref": "#/entities/ChatChannel" },
+      "description": "General batch chat, course channels, and project team rooms"
+    },
+    "/chat_channels/{channelId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside chat channels and project rooms"
+    },
+    "/meeting_rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/MeetingRoom" },
+      "description": "Mini meeting rooms for fast project collaboration"
+    },
+    "/meeting_rooms/{roomId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Live discussion messages inside mini meeting rooms"
+    },
+    "/dynamic_modules/{moduleId}": {
+      "schema": { "$ref": "#/entities/DynamicModule" },
+      "description": "Dynamic UI cards, tools, and official banners configured in-app"
+    },
+    "/users/{userId}/flashcards/{cardId}": {
+      "schema": { "$ref": "#/entities/Flashcard" },
+      "description": "Per-student spaced repetition flashcards"
+    },
+    "/users/{userId}/personal_tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/PersonalTask" },
+      "description": "Per-student daily To-Do tasks with priorities and deadlines"
+    },
+    "/global_references/{refId}": {
+      "schema": { "$ref": "#/entities/GlobalReference" },
+      "description": "Curated global academic references and MOOCs"
+    }
+  }
+}

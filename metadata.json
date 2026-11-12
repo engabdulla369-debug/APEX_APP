@@ -1,0 +1,6 @@
+{
+  "name": "منصة الدفعة",
+  "description": "منصة أكاديمية متكاملة لتنظيم المحاضرات، الواجبات، الامتحانات التجريبية، والجدول الدراسي والتواصل بين طلاب الدفعة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
